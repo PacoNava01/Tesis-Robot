@@ -15,7 +15,8 @@ Repositorio de respaldo con miras a ser el principal a cerca del trabajo realiza
 | Carpeta / Archivo | Descripción |
 | :--- | :--- |
 | `scripts/` | Archivos `.py` listos para ejecución directa. |
-  | `scripts/Vsion` | Archivos `.py` enfocados en tareas de visión.|
+  | `scripts/Vision` | Archivos `.py` enfocados en tareas de visión.|
+  | `scripts/Yolo` | Archivos `.py` enfocados en tareas exclusivas de modelos YOLO.|
   | `scripts/Hardware` | Archivos `.py` enfocados en tareas de control de hardware (principalmente motores y servos).|
 | `docs/` | Diagramas de conexiones y guías teóricas. |
 | `README.md` | Guía principal del repositorio (este archivo). |

@@ -13,9 +13,7 @@ sudo apt install -y \
     python3-opencv \
     python3-gpiozero \
     python3-lgpio \
-    python3-numpy \
-    libatlas-base-dev \
-    libopenblas-dev
+    python3-numpy 
 
 echo " Creando entorno virtual .pacon..."
 if [ -d ".pacon" ]; then

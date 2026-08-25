@@ -2,6 +2,7 @@ from pathlib import Path
 import time
 import cv2
 from picamera2 import Picamera2
+import json
 
 """
 Captura una foto después de un tiempo de espera
@@ -33,6 +34,26 @@ def init_cam() -> Picamera2 | None:
     except Exception as e:
         print(f"Error al inicializar la cámara: {e}")
         return None
+
+def load_calibration(calibration_path):
+    """
+    Carga los parámetros de calibración intrínsecos de la cámara desde un archivo JSON.
+    """
+    if not os.path.exists(calibration_path):
+        print(f"Advertencia: No se encontró el archivo de calibración '{calibration_path}'.")
+        print("El script funcionará pero no corregirá la distorsión geométrica de la lente.")
+        return None, None
+    
+    try:
+        with open(calibration_path, 'r') as f:
+            data = json.load(f)
+        camera_matrix = np.array(data['camera_matrix'])
+        dist_coeffs = np.array(data['distortion_coefficients'])
+        print(f"Calibración cargada con éxito desde: {calibration_path}")
+        return camera_matrix, dist_coeffs
+    except Exception as e:
+        print(f"Error al cargar el archivo de calibración: {e}")
+        return None, None
 
 
 def click_mouse(event, x, y, flags, param):

@@ -46,7 +46,7 @@ class PID:
 def main():
     # --- Configuración de rutas y archivos ---
     BASE_DIR = Path("/home/pacon/Tesis-Robot")
-    JSON_CALIBRACION = BASE_DIR / "src/Vision/calibracion.json"
+    JSON_CALIBRACION = BASE_DIR / "/Vision/data_calib/raspberry_pi_hq_calibration.json"
     MODEL_PATH = BASE_DIR / "data/model.pkl"
     SCALER_PATH = BASE_DIR / "data/scaler.pkl"
 

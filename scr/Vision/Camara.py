@@ -3,21 +3,19 @@ import time
 import cv2
 from picamera2 import Picamera2
 import json
+import numpy as np
+import os
 
 """
-Captura una foto después de un tiempo de espera
-tras hacer click izquierdo en la ventana.
+Captura fotos automáticamente cada X segundos 
+y las almacena en un directorio específico.
 """
 
 # Configuración y constantes
-TIEMPO_ESPERA = 3
+INTERVALO_SEGUNDOS = 2.5  # Tiempo entre cada captura automática
 RUTA_DESTINO = Path(
-    "/home/pacon/Tesis_pacon/Jupyter/Tesis-Proyecto/src/Vision/ArUcocalib"
+    "/home/pacon/Tesis-Robot/scr/Vision/data_calib/Red_color_photos"
 )
-
-# Variables globales para el estado del mouse
-temporizador_activo = False
-tiempo_click = 0.0
 
 
 def init_cam() -> Picamera2 | None:
@@ -34,6 +32,7 @@ def init_cam() -> Picamera2 | None:
     except Exception as e:
         print(f"Error al inicializar la cámara: {e}")
         return None
+
 
 def load_calibration(calibration_path):
     """
@@ -56,19 +55,7 @@ def load_calibration(calibration_path):
         return None, None
 
 
-def click_mouse(event, x, y, flags, param):
-    """Callback para manejar el evento del mouse."""
-    global temporizador_activo, tiempo_click
-
-    if event == cv2.EVENT_LBUTTONDOWN and not temporizador_activo:
-        tiempo_click = time.time()
-        temporizador_activo = True
-        print("¡Temporizador iniciado! Mantente quieto...")
-
-
 def main():
-    global temporizador_activo
-
     # Asegurar que la ruta de destino exista
     RUTA_DESTINO.mkdir(parents=True, exist_ok=True)
 
@@ -76,11 +63,15 @@ def main():
     if camara is None:
         return
 
-    nombre_ventana = "Frame capturado"
+    nombre_ventana = "Captura Automatica"
     cv2.namedWindow(nombre_ventana)
-    cv2.setMouseCallback(nombre_ventana, click_mouse)
 
     contador = len(list(RUTA_DESTINO.glob("calib_*.jpg")))
+    
+    # Inicializar el tiempo de la última captura
+    tiempo_ultima_captura = time.time()
+
+    print(f"Iniciando capturas automáticas cada {INTERVALO_SEGUNDOS} segundos...")
 
     try:
         while True:
@@ -95,10 +86,15 @@ def main():
             # Crear una copia para mostrar en pantalla con la interfaz gráfica
             frame_display = frame_raw.copy()
 
-            # Texto guía fijo en pantalla
+            # Calcular el tiempo restante para la próxima foto
+            tiempo_actual = time.time()
+            tiempo_transcurrido = tiempo_actual - tiempo_ultima_captura
+            tiempo_restante = max(0, int(INTERVALO_SEGUNDOS - tiempo_transcurrido) + 1)
+
+            # Texto guía y cuenta regresiva en pantalla
             cv2.putText(
                 frame_display,
-                "Click izq: Tomar foto | Enter: Salir",
+                f"Siguiente foto en: {tiempo_restante}s | Enter/Q: Salir",
                 (15, 30),
                 cv2.FONT_HERSHEY_SIMPLEX,
                 0.5,
@@ -107,33 +103,16 @@ def main():
                 cv2.LINE_AA,
             )
 
-            # Lógica del temporizador
-            if temporizador_activo:
-                tiempo_transcurrido = time.time() - tiempo_click
-                tiempo_restante = (
-                    int(TIEMPO_ESPERA - tiempo_transcurrido) + 1
-                )
+            # Lógica para tomar la foto cuando se cumple el intervalo
+            if tiempo_transcurrido >= INTERVALO_SEGUNDOS:
+                nombre_archivo = RUTA_DESTINO / f"calib_{contador}.jpg"
+                cv2.imwrite(str(nombre_archivo), frame_raw)
 
-                if tiempo_restante > 0:
-                    # Mostrar cuenta regresiva en el display
-                    cv2.putText(
-                        frame_display,
-                        f"Foto en {tiempo_restante}",
-                        (200, 240),
-                        cv2.FONT_HERSHEY_SIMPLEX,
-                        1.5,
-                        (0, 0, 255),
-                        3,
-                        cv2.LINE_AA,
-                    )
-                else:
-                    # Guardamos 'frame_raw' limpio (SIN los textos de la cuenta regresiva)
-                    nombre_archivo = RUTA_DESTINO / f"calib_{contador}.jpg"
-                    cv2.imwrite(str(nombre_archivo), frame_raw)
-
-                    print(f"Imagen guardada exitosamente: {nombre_archivo}")
-                    contador += 1
-                    temporizador_activo = False
+                print(f"Imagen guardada exitosamente: {nombre_archivo}")
+                contador += 1
+                
+                # Reiniciar el temporizador
+                tiempo_ultima_captura = time.time()
 
             # Mostrar el frame procesado
             cv2.imshow(nombre_ventana, frame_display)

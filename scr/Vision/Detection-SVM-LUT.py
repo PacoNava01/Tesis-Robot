@@ -6,24 +6,34 @@ import time
 import json
 
 # Ruta de la LUT
-LUT_PATH = "/home/pacon/Tesis_pacon/Jupyter/Tesis-Proyecto/src/Vision/ArUcocalib/color_lut.npy"
+LUT_PATH = "/home/pacon/Tesis-Robot/scr/Vision/data_calib/color_lut.npy"
 
 # Cargar LUT
 lut_matrix = np.load(LUT_PATH)
 
-def init_cam():
-    cam = Picamera2()
-    config = cam.create_video_configuration(
-        main={"size": (640, 480), "format": "RGB888"}
-    )
-    cam.configure(config)
-    cam.start()
-    print("Cámara inicializada correctamente.")
-    return cam
+def init_cam() -> Picamera2 | None:
+    """Inicializa y configura la cámara Picamera2."""
+    try:
+        cam = Picamera2()
+        config = cam.create_video_configuration(
+            main={"size": (640, 480), "format": "RGB888"}
+        )
+        cam.configure(config)
+        cam.start()
+        print("Cámara inicializada correctamente.")
+        return cam
+    except Exception as e:
+        print(f"Error al inicializar la cámara: {e}")
+        return None
 
 def main():
     camara = init_cam()
+    if camara is None:
+        return
+
     kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (5,5))
+    window_name = "Detección LUT"
+    cv2.namedWindow(window_name, cv2.WINDOW_AUTOSIZE)
 
     try:
         while True:
@@ -34,11 +44,17 @@ def main():
             # Rotar frame si es necesario
             frame_raw = cv2.rotate(frame_raw, cv2.ROTATE_180)
 
+            # --- CORRECCIÓN DE CANAL PARA LA LUT ---
+            # Si tu LUT fue calibrada con BGR, descomenta la siguiente línea 
+            # para intercambiar los canales rojo y azul antes de pasar a HSV:
+            # frame_raw = cv2.cvtColor(frame_raw, cv2.COLOR_RGB2BGR)
+            
             # Convertir a HSV
             hsv_frame = cv2.cvtColor(frame_raw, cv2.COLOR_RGB2HSV)
 
             # Indexación directa con LUT
-            mask = lut_matrix[hsv_frame[:,:,0], hsv_frame[:,:,1], hsv_frame[:,:,2]] * 255
+            mask = lut_matrix[hsv_frame[:,:,0], hsv_frame[:,:,1], hsv_frame[:,:,2]]
+            mask = (mask * 255).astype(np.uint8)
 
             # Limpieza morfológica
             mask_clean = cv2.morphologyEx(mask, cv2.MORPH_OPEN, kernel)
@@ -46,11 +62,23 @@ def main():
 
             # Superponer detección
             overlay = frame_raw.copy()
-            overlay[mask_clean > 0] = [0,255,0]
+            overlay[mask_clean > 0] = [0, 255, 0]
 
-            cv2.imshow("Detección LUT", cv2.cvtColor(overlay, cv2.COLOR_RGB2BGR))
+            cv2.putText(
+                overlay,
+                "Enter/Q: Salir",
+                (15, 30),
+                cv2.FONT_HERSHEY_SIMPLEX,
+                0.5,
+                (0, 255, 0),
+                1,
+                cv2.LINE_AA,
+            )
 
-            if cv2.waitKey(1) & 0xFF == ord("q"):
+            # Mostrar la imagen convirtiéndola correctamente a BGR para la ventana de OpenCV
+            cv2.imshow(window_name, cv2.cvtColor(overlay, cv2.COLOR_RGB2BGR))
+
+            if cv2.waitKey(10) & 0xFF == 13 or ord("q"):
                 break
 
     finally:

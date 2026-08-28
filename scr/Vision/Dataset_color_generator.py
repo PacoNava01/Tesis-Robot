@@ -9,7 +9,7 @@ Este script se encarga únicamente de abrir imágenes, permitir la selección de
 '''
 
 class PixelDatasetGenerator:
-    def __init__(self, images_path="./images/*.jpg", color_space="HSV"):
+    def __init__(self, images_path="/home/pacon/Tesis-Robot/scr/Vision/data_calib/Red_color_photos/*.jpg", color_space="HSV"):
         self.images_path = images_path
         self.color_space = color_space.upper()
         self.positives = []
@@ -74,7 +74,7 @@ class PixelDatasetGenerator:
         print(f"Dataset guardado en {filename}")
 
 if __name__ == "__main__":
-    generator = PixelDatasetGenerator(images_path="./images/*.jpg", color_space="HSV")
+    generator = PixelDatasetGenerator(images_path="/home/pacon/Tesis-Robot/scr/Vision/data_calib/Red_color_photos/*.jpg", color_space="HSV")
     if generator.collect_from_rois():
         generator.save_dataset("pixel_dataset.csv")
     else:

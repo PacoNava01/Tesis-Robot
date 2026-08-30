@@ -68,7 +68,13 @@ class PixelDatasetGenerator:
         X = np.vstack((X_pos, X_neg))
         y = np.concatenate((y_pos, y_neg))
 
-        df = pd.DataFrame(X, columns=["Channel1","Channel2","Channel3"])
+        if self.color_space == "HSV":
+            df = pd.DataFrame(X, columns=["H","S","V"])
+
+        else:
+            df = pd.DataFrame(X, columns=["B","G","R"])
+
+        
         df["Label"] = y
         df.to_csv(filename, index=False)
         print(f"Dataset guardado en {filename}")

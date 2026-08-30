@@ -26,6 +26,26 @@ def init_cam() -> Picamera2 | None:
         print(f"Error al inicializar la cámara: {e}")
         return None
 
+def Preprocess(frame,rotate = True,k = (5,5)):
+    kernel = cv2.getStructuringElement(cv2.MORPH_RECT, kernel)
+    if rotate == True:
+        # Rotar frame si es necesario
+        frame_raw = cv2.rotate(frame, cv2.ROTATE_180)
+    else: pass
+
+    # --- CORRECCIÓN DE CANAL PARA LA LUT ---
+    # Si el LUT fue calibrada con BGR, descomenta la siguiente línea 
+    # para intercambiar los canales rojo y azul antes de pasar a HSV:
+    frame_raw = cv2.cvtColor(frame_raw, cv2.COLOR_RGB2BGR)
+    # Convertir a HSV
+    hsv_frame = cv2.cvtColor(frame_raw, cv2.COLOR_RGB2HSV)
+
+    # Indexación directa con LUT
+    mask = lut_matrix[hsv_frame[:,:,0], hsv_frame[:,:,1], hsv_frame[:,:,2]]
+    mask = (mask * 255).astype(np.uint8)
+
+    return mask
+
 def main():
     camara = init_cam()
     if camara is None:
@@ -47,7 +67,7 @@ def main():
             # --- CORRECCIÓN DE CANAL PARA LA LUT ---
             # Si tu LUT fue calibrada con BGR, descomenta la siguiente línea 
             # para intercambiar los canales rojo y azul antes de pasar a HSV:
-            # frame_raw = cv2.cvtColor(frame_raw, cv2.COLOR_RGB2BGR)
+            frame_raw = cv2.cvtColor(frame_raw, cv2.COLOR_RGB2BGR)
             
             # Convertir a HSV
             hsv_frame = cv2.cvtColor(frame_raw, cv2.COLOR_RGB2HSV)
@@ -74,11 +94,14 @@ def main():
                 1,
                 cv2.LINE_AA,
             )
+            horizontal = np.hstack((overlay,frame_raw))
 
             # Mostrar la imagen convirtiéndola correctamente a BGR para la ventana de OpenCV
-            cv2.imshow(window_name, cv2.cvtColor(overlay, cv2.COLOR_RGB2BGR))
+            cv2.imshow(window_name, cv2.cvtColor(horizontal, cv2.COLOR_RGB2BGR))
 
-            if cv2.waitKey(10) & 0xFF == 13 or ord("q"):
+
+            tecla = cv2.waitKey(10) & 0xFF
+            if tecla == 13 or tecla == ord("q"):
                 break
 
     finally:

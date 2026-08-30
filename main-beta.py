@@ -5,7 +5,7 @@ import cv2
 import numpy as np
 
 # --- Importación de tus módulos locales personalizados ---
-from scr.Vision.Detector import ObjectDetector, obtener_mask
+from scr.Vision.Detector import ObjectDetector, get_clean_red_mask
 from scr.Vision.Camara import init_cam
 from scr.Vision.Apply_cam_calib import cargar_calibracion,corregir_frame
 from scr.Hardware.MG966R_control import init_servos, mover_servo

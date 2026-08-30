@@ -5,6 +5,12 @@ import argparse
 import os
 import json
 
+
+'''
+Script enfocado en la deteccion de objetos de color rojo a partir de la segmentacion por threshold de mascaras HSV, ademas de otras funciones de segmentaciomn y distancia
+
+
+'''
 # -------------------------------
 # Funciones de segmentación y distancia
 # -------------------------------

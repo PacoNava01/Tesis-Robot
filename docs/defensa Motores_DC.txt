@@ -1,0 +1,12 @@
+Para argumentar este cambio de forma técnica y sólida —ideal para una memoria de proyecto, un informe de ingeniería o una explicación ante un equipo—, la clave está en separar el **propósito cinemático** de cada maniobra: la corrección de trayectoria frente a la rotación pura.
+
+Puedes defender este ajuste bajo el concepto de **control por modos de movimiento**, demostrando que un robot diferencial no puede aplicar las mismas reglas de calibración cuando busca direccionalidad que cuando busca pivotar sobre su propio centro.
+
+Los puntos clave para construir esa defensa técnica son:
+
+* **Diferenciación de objetivos físicos:** Al avanzar en línea recta, el objetivo del sistema es **compensar la asimetría de fabricación** (tolerancias mecánicas, ligeras variaciones en las bobinas o fricciones distintas entre el motor izquierdo y el derecho) para evitar que el carro se desvíe hacia un lado. Aquí la compensación matemática es vital.
+* **La física del giro en seco (Spin):** Cuando el robot gira sobre su propio eje, el objetivo cambia radicalmente. Ya no se busca corregir desviaciones, sino lograr una **inversión de vectores de fuerza simétrica**. Las ruedas necesitan empujar con idéntica magnitud y en direcciones opuestas para que el centro geométrica del robot actúe como eje de rotación estable.
+* **El fallo del modelo unificado:** Aplicar la fórmula de corrección lineal —que resta potencia para frenar intencionalmente al motor derecho— durante un giro destruye por completo el equilibrio de fuerzas. Esto hace que un motor venza la fricción estática con fuerza mientras el otro se hunde en su **zona muerta**, convirtiendo lo que debería ser un giro limpio sobre el sitio en un trompo defectuoso o un bloqueo parcial.
+* **La solución implementada:** Añadir la validación de signos (`v_i * vel_der < 0`) transforma al controlador en un **sistema adaptativo contextual**. El script ahora es lo suficientemente inteligente como para distinguir entre una orden de avance lineal y una orden de rotación, aplicando la corrección únicamente cuando la física del movimiento lo requiere.
+
+El argumento central se reduce a que **la calibración de errores longitudinales no debe sabotear la simetría rotacional**, ya que responden a necesidades mecánicas opuestas. Este cambio dota al software del carro de una coherencia cinemática indispensable para cualquier comportamiento autónomo complejo.

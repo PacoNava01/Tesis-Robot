@@ -5,12 +5,12 @@ import numpy as np
 from picamera2 import Picamera2
 
 # Rutas de archivos y configuración
-JSON_CALIBRACION = Path("/home/pacon/Tesis_pacon/Jupyter/Tesis-Proyecto/src/Vision/calibracion.json")
+JSON_CALIBRACION = Path("/home/pacon/Tesis-Robot/scr/Vision/data_calib/raspberry_pi_hq_calibration.json")
 RESOLUCION = (640, 480)
 
 
 def cargar_calibracion(json_path: Path) -> tuple[np.ndarray, np.ndarray]:
-    """Bloque 1: Carga la matriz de la cámara y los coeficientes de distorsión desde un JSON."""
+    """Carga la matriz de la cámara y los coeficientes de distorsión desde un JSON."""
     if not json_path.exists():
         raise FileNotFoundError(f"No se encontró el archivo de calibración en: {json_path}")
     
@@ -18,13 +18,14 @@ def cargar_calibracion(json_path: Path) -> tuple[np.ndarray, np.ndarray]:
         data = json.load(f)
     
     mtx = np.array(data["camera_matrix"], dtype=np.float32)
-    dist = np.array(data["dist_coeff"], dtype=np.float32)
+    # Usamos la llave correcta y aplanamos el arreglo a 1D
+    dist = np.array(data["distortion_coefficients"], dtype=np.float32).flatten()
     
     return mtx, dist
 
 
 def init_cam() -> Picamera2 | None:
-    """Bloque 2: Inicializa y configura la Picamera2."""
+    """Inicializa y configura la Picamera2."""
     try:
         cam = Picamera2()
         config = cam.create_video_configuration(
@@ -40,7 +41,7 @@ def init_cam() -> Picamera2 | None:
 
 
 def corregir_frame(frame: np.ndarray, mtx: np.ndarray, dist: np.ndarray) -> np.ndarray:
-    """Bloque 3: Aplica la corrección de distorsión pinhole a un frame individual."""
+    """Aplica la corrección de distorsión pinhole a un frame individual."""
     # Rotar si tu montaje físico lo requiere
     frame_rotado = cv2.rotate(frame, cv2.ROTATE_180)
     
@@ -66,7 +67,7 @@ def main():
 
     # 3. Configurar interfaz de visualización
     nombre_ventana = "Camara Corregida (PinHole)"
-    cv2.namedWindow(nombre_ventana)
+    cv2.namedWindow(nombre_ventana, cv2.WINDOW_AUTOSIZE)
 
     try:
         # 4. Bucle principal de procesamiento
@@ -78,6 +79,9 @@ def main():
 
             # Aplicar bloque de corrección geométrica
             frame_corregido = corregir_frame(frame_raw, mtx, dist)
+
+            # Convertir de RGB (Picamera2) a BGR (para que OpenCV muestre bien los colores)
+            frame_bgr = cv2.cvtColor(frame_corregido, cv2.COLOR_RGB2BGR)
 
             # Mostrar resultado
             cv2.imshow(nombre_ventana, frame_corregido)

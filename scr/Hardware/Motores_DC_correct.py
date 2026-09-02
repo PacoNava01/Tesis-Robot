@@ -53,9 +53,15 @@ class Carro:
         return math.copysign(magnitud * factor - 0.2, v)
 
     def mover(self, vel_izq: float, vel_der: float):
-        """Envía velocidades independientes a cada lado con compensación aplicada."""
+        """Envía velocidades independientes aplicando compensación solo en movimiento lineal."""
         v_i = self._clamp(vel_izq)
-        v_d = self._clamp(self._compensar_derecho(vel_der))
+        
+        # Si tienen signos opuestos, están girando sobre su propio eje (spin).
+        # Aplicar compensación asimétrica aquí suele desbalancear el giro.
+        if v_i * vel_der < 0:
+            v_d = self._clamp(vel_der)
+        else:
+            v_d = self._clamp(self._compensar_derecho(vel_der))
         
         self.robot.left_motor.value = v_i
         self.robot.right_motor.value = v_d
@@ -92,23 +98,27 @@ class Carro:
 if __name__ == "__main__":
     # Definición de pines (GPIOs físicos de la Raspberry Pi)
     pines_izq = (17, 27, 12)  # Forward, Backward, Enable (PWM)
-    pines_der = (23, 22, 13)  # Forward, Backward, Enable (PWM)
+    pines_der = (22, 23, 13)  # Forward, Backward, Enable (PWM)
     pin_stby = 24
 
     # Uso seguro mediante Context Manager ('with')
     try:
         with Carro(pines_izq, pines_der, pin_stby) as carrito:
-            print("Avanzando durante 2 segundos...")
-            carrito.accion('avanzar', velocidad=0.6)
-            time.sleep(2.0)
+            #print("Avanzando durante 2 segundos...")
+            #carrito.accion('derecha', velocidad=0.5)
+            #carrito.accion('avanzar', velocidad=0.2)
+            #time.sleep(1.0)
 
-            print("Girando a la izquierda...")
-            carrito.accion('izquierda', velocidad=0.5)
-            time.sleep(1.0)
+            #print("Girando a la izquierda...")
+            #carrito.accion('izquierda', velocidad=0.5)
+            #time.sleep(1.0)
 
-            print("Deteniendo...")
-            carrito.detener()
-            time.sleep(1.0)
+            #print("Deteniendo...")
+            #carrito.detener()
+            #time.sleep(1.0)
+            
+            carrito.mover(0.6,-0.5)
+            time.sleep(1)
             
     except KeyboardInterrupt:
         print("\nOperación interrumpida por el usuario.")

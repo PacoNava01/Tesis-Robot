@@ -50,10 +50,10 @@ def main():
             time.sleep(2.0)
             
         # Ejemplo opcional de movimiento fluido (barrido)
-        print("Realizando barrido suave...")
-        for angle in range(0, 181, 10):
-            mover_servo(servo_x, angle)
-            time.sleep(0.05)
+        #print("Realizando barrido suave...")
+        #for angle in range(45, 110, 10):
+            #mover_servo(servo_x, angle)
+            #time.sleep(0.05)
             
     except KeyboardInterrupt:
         print("\nSecuencia interrumpida por el usuario.")

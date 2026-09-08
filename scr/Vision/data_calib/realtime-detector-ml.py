@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 import cv2
 import numpy as np
 import joblib
@@ -47,7 +46,8 @@ def apply_morphological_operations(mask):
 def estimate_distance_area_model(area, k=DEFAULT_K_AREA, b=DEFAULT_B_AREA):
     """
     Modelo Experimental Cuadrático Inverso:
-    Estima la distancia (D) basada en el área segmentada del marcador en píxeles.
+    Estima la distancia (D) basada en el área
+    segmentada del marcador en píxeles.
     Fórmula: D = sqrt(k / (Area - b))
     """
     if (area - b) <= 0:

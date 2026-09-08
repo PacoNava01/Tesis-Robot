@@ -26,6 +26,11 @@ pines_izq = (17, 27, 12)  # Forward, Backward, Enable (PWM)
 pines_der = (22, 23, 13)  # Forward, Backward, Enable (PWM)
 pin_stby = 24
 
+#---PID parmetros---
+pid_x = PID(kP=0.01, kI=0.02, kD=0.0005)
+pid_y = PID(kP=0.01, kI=0.02, kD=0.0005)
+
+
 # Definir el kernel correctamente como matriz de OpenCV
 kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (5, 5))
 
@@ -60,11 +65,25 @@ try:
         # Aplicamos limpieza morfologica
         mask_clean = cv2.morphologyEx(mask, cv2.MORPH_OPEN, kernel)
         mask_clean = cv2.morphologyEx(mask_clean, cv2.MORPH_CLOSE, kernel)
+        mask_clean = cv2.GaussianBlur(mask_clean, (5, 5), 0)
         best_centroid, area = Detection_SVM_LUT.calcular_centroide_y_area(mask)		
-
+             
         # Superponer la deteccion
         overlay = frame_bgr.copy()
         overlay[mask_clean > 0] = [0, 255, 0]
+        
+		# Dibujar contorno y centroide si se detecta algo
+        if best_centroid:
+            # Opcional: dibujar la línea del contorno real
+            contours, _ = cv2.findContours(mask_clean, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+            if contours:
+                cv2.drawContours(overlay, contours, -1, (255, 0, 0), 2)  # Contorno azul
+            
+            # Dibujar centroide
+            cv2.circle(overlay, best_centroid, 5, (0, 0, 255), -1)  # Círculo rojo relleno
+            cv2.putText(overlay, "siguiendo", (15, 50), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 255), 1, cv2.LINE_AA)
+            cv2.putText(overlay, f"Area: {area}", (15, 75), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 255), 1, cv2.LINE_AA)
+        
 
         cv2.putText(
             overlay,
@@ -72,7 +91,7 @@ try:
             (15, 30),
             cv2.FONT_HERSHEY_SIMPLEX,
             0.5,
-            (0, 255, 0),
+            (250, 0, 100),
             1,
             cv2.LINE_AA,
         )

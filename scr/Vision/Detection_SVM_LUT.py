@@ -48,7 +48,7 @@ def Preprocess(frame, rotate=True):
 def calcular_centroide_y_area(mask, min_area=800):
     """Encuentra el contorno principal en una máscara binaria y calcula su centroide y área."""
     contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-    best_centroid, area = None, 0
+    best_centroid, area,last_detect,best_contour = None, 0,time.time(),None
 
     if contours:
         c = max(contours, key=cv2.contourArea)
@@ -59,8 +59,9 @@ def calcular_centroide_y_area(mask, min_area=800):
                 cx = int(M["m10"] / M["m00"])
                 cy = int(M["m01"] / M["m00"])
                 best_centroid = (cx, cy)
-                
-    return best_centroid, area
+                best_contour = c
+                last_detect = time.time()
+    return best_centroid, area,last_detect,best_contour
 
 
 

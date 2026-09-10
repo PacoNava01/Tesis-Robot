@@ -54,6 +54,28 @@ def load_calibration(calibration_path):
         print(f"Error al cargar el archivo de calibración: {e}")
         return None, None
 
+def estimate_distance_area_model(area, k, b):
+    """
+    Modelo Experimental Cuadrático Inverso:
+    Estima la distancia (D) basada en el área
+    segmentada del marcador en píxeles.
+    Fórmula: D = sqrt(k / (Area - b))
+    """
+    if (area - b) <= 0:
+        return float('nan')
+    return np.sqrt(k / (area - b))
+
+def estimate_distance_linear_model(width_px, f_x, W_real):
+    """
+    Modelo Lineal Pinhole:
+    Estima la distancia (D) basada en
+    el ancho del cuadro
+    delimitador en píxeles.
+    Fórmula: D = (f_x * W_real) / width_px
+    """
+    if width_px <= 0:
+        return float('nan')
+    return (f_x * W_real) / width_px
 
 def main():
     # Asegurar que la ruta de destino exista

@@ -28,8 +28,16 @@ def mover_servo(servo, angle: int):
     """Mueve un servo específico a un ángulo validando los límites."""
     angle_restringido = max(0, min(angle, ACTUATION_RANGE))
     servo.angle = angle_restringido
-    print(f"Moviendo servo a: {angle_restringido}°")
+    #print(f"Moviendo servo a: {angle_restringido}°")
 
+# Función auxiliar para actualizar el servo de manera limpia
+def actualizar_eje(error, dead_zone, pid_controller, current_angle, limits, servo_id):
+    if abs(error) > dead_zone:
+        adjustment = pid_controller.update(error)
+        current_angle = max(limits[0], min(limits[1], current_angle + adjustment))
+        # Al estar en el mismo módulo, puedes llamar a mover_servo directamente
+        mover_servo(servo_id, current_angle)
+    return current_angle
 
 def main():
     # Inicializar kit de servos

@@ -98,7 +98,7 @@ class Carro:
 if __name__ == "__main__":
     # Definición de pines (GPIOs físicos de la Raspberry Pi)
     pines_izq = (17, 27, 12)  # Forward, Backward, Enable (PWM)
-    pines_der = (22, 23, 13)  # Forward, Backward, Enable (PWM)
+    pines_der = (23, 22, 13)  # Forward, Backward, Enable (PWM)
     pin_stby = 24
 
     # Uso seguro mediante Context Manager ('with')
@@ -117,7 +117,7 @@ if __name__ == "__main__":
             #carrito.detener()
             #time.sleep(1.0)
             
-            carrito.mover(0.6,-0.5)
+            carrito.mover(0.6,-0.6)
             time.sleep(1)
             
     except KeyboardInterrupt:

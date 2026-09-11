@@ -33,6 +33,7 @@ DEFAULT_K_AREA = 169889133.06
 DEFAULT_B_AREA = -20.94
 DEFAULT_FX = 909.897352
 DEFAULT_W_REAL = 15.0  # Ancho físico real del marcador en centímetros (15 cm)
+area_detect_target = 1200
 
 #--- Umbrales --- en HSV
 umbrales = {"rojo_low1":[100,100,100],
@@ -45,9 +46,9 @@ umbrales = {"rojo_low1":[100,100,100],
 #---PID parmetros---
 pid_x = PID(kP=0.01, kI=0.02, kD=0.0005) #servo x
 pid_y = PID(kP=0.01, kI=0.02, kD=0.0005) #servo y
-pid_linear = PID(kP=0.05, kI=0.001, kD=0.01)#velocidad lineal usando el PID camara
-TARGET_AREA = 25000  # Área ideal que debe ocupar el objeto en píxeles (ajustar según la cámara)
-AREA_DEAD_ZONE = 1000
+pid_linear = PID(kP=0.8, kI=0.005, kD=0.1)#velocidad lineal usando el PID camara
+TARGET_AREA = 153000  # Área ideal que debe ocupar el objeto en píxeles (ajustar según la cámara)
+AREA_DEAD_ZONE = 0.05 #½ de tolerancia
 dead_zone = 5
 detection_timeout = 0.2
 last_detection = time.time()
@@ -100,14 +101,19 @@ try:
         mask_clean = cv2.morphologyEx(mask_clean, cv2.MORPH_CLOSE, kernel)
         mask_clean = cv2.GaussianBlur(mask_clean, (11, 11), 0)
         
-        best_centroid, area, last_detection, c = Detection_SVM_LUT.calcular_centroide_y_area(mask_clean, 1200)     
+        best_centroid, area, last_detection, c = Detection_SVM_LUT.calcular_centroide_y_area(mask_clean, area_detect_target)     
 
         if best_centroid is not None:
             last_detection = time.time()
                  
-        # Superponer la detección
+        # --- SOLUCIÓN 1: Crear una máscara limpia solo con el contorno MÁS GRANDE ---
+        mask_principal = np.zeros_like(mask_clean)
+        if c is not None and area > area_detect_target:
+            cv2.drawContours(mask_principal, [c], -1, 255, thickness=cv2.FILLED)
+
+        # Superponer la detección ÚNICAMENTE del objeto principal
         overlay = frame_bgr.copy()
-        overlay[mask_clean > 0] = [0, 255, 0]
+        overlay[mask_principal > 0] = [0, 255, 0]
         
         # Inicializar variables de movimiento del chasis por defecto en 0
         velocidad_lineal = 0.0
@@ -118,16 +124,14 @@ try:
             if best_centroid:
                 error_x = CENTER_X - best_centroid[0]
                 error_y = CENTER_Y - best_centroid[1]
-                error_area = TARGET_AREA - area  # Positivo si está lejos, Negativo si está muy cerca
+                error_area = (TARGET_AREA-area)/TARGET_AREA
                 
                 if abs(error_area) > AREA_DEAD_ZONE:
                     velocidad_lineal = pid_linear.update(error_area)
-                    # Limitar velocidad lineal a los rangos permitidos
                     velocidad_lineal = max(-1.0, min(1.0, velocidad_lineal))
                 else:
                     velocidad_lineal = 0.0
             else:
-                # Si se perdió momentáneamente pero estamos en el timeout de inercia
                 error_x = pid_x.last_error
                 error_y = pid_y.last_error
                 error_area = getattr(pid_linear, 'last_error', 0)
@@ -148,36 +152,32 @@ try:
                                               limits=angle_y_limit,
                                               servo_id=servo_y)
 
-            # --- 2. Control Angular del Chasis (Efecto "Cuello Humano") ---
+            # --- 2. Control Angular del Chasis ---
             if abs(angle_x - start_angle) > SERVO_DEAD_ZONE_GIRAR:
                 if angle_x > start_angle:
-                    velocidad_giro = 0.4   # Girar hacia la derecha
+                    velocidad_giro = 0.4   
                 else:
-                    velocidad_giro = -0.4  # Girar hacia la izquierda
+                    velocidad_giro = -0.4  
 
             # --- 3. Combinar y Enviar al Carro ---
-            vel_izq = velocidad_lineal - velocidad_giro
-            vel_der = velocidad_lineal + velocidad_giro
+            vel_izq = round(max(-1.0, min(1.0, velocidad_lineal - velocidad_giro)),2)
+            vel_der = round(max(-1.0, min(1.0, velocidad_lineal + velocidad_giro)),2)
             
-            # Limitar a los rangos máximos del puente H (-100 a 100)
-            vel_izq = max(-1.0, min(1.0, vel_izq))
-            vel_der = max(-1.0, min(1.0, vel_der))
-            
-            # Enviar comandos a los motores DC
-            # carro.mover(vel_izq, vel_der)
+            #carro.mover(vel_izq, vel_der)
 
-        else:
-            # Si pasó el tiempo de tolerancia sin detectar nada, detener el chasis por seguridad
-            carro.detener()
-            pass
-
-            cv2.drawContours(overlay, c, -1, (255, 0, 0), 2)  # Contorno azul
+            # --- SOLUCIÓN 2: Dibujos correctamente indentados dentro de la detección ---
+            if c is not None:
+                cv2.drawContours(overlay, [c], -1, (255, 0, 0), 2)  # Contorno azul
             
-            # Dibujar centroide
-            cv2.circle(overlay, best_centroid, 5, (0, 0, 255), -1)  # Círculo rojo relleno
+            if best_centroid:
+                cv2.circle(overlay, best_centroid, 5, (0, 0, 255), -1)  # Círculo rojo relleno
+            
             cv2.putText(overlay, "siguiendo", (15, 50), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 255), 1, cv2.LINE_AA)
-            cv2.putText(overlay, f"Area: {area}", (15, 75), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 255), 1, cv2.LINE_AA)
-        
+            cv2.putText(overlay, f"Area-Error_area: {area,TARGET_AREA,error_area}", (15, 75), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 255), 1, cv2.LINE_AA)
+            cv2.putText(overlay, f"Velocidad: {vel_izq,vel_der}", (15, 95), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 0), 1, cv2.LINE_AA)
+            print(f"{area,TARGET_AREA}")
+        else:
+            carro.detener()
 
         cv2.putText(
             overlay,
@@ -190,8 +190,8 @@ try:
             cv2.LINE_AA,
         )
         
-        #horizontal = np.hstack((overlay, frame_bgr))
-        horizontal = np.hstack((overlay, cv2.cvtColor(mask_clean, cv2.COLOR_GRAY2BGR)))
+        # Mostrar vista combinada (Overlay de detección y la máscara limpia del objeto principal)
+        horizontal = np.hstack((overlay, cv2.cvtColor(mask_principal, cv2.COLOR_GRAY2BGR)))
         cv2.imshow(window_name, horizontal)
         
         tecla = cv2.waitKey(10) & 0xFF

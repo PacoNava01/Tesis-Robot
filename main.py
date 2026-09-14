@@ -23,13 +23,13 @@ rutas = {
 }
 
 # --- Configuración de registro estadístico ---
-csv_file_path = Path("/home/pacon/Tesis-Robot/docs/data/registro_errores_tilt-pan.csv")
+csv_file_path = Path("/home/pacon/Tesis-Robot/docs/data/registro_errores_tilt-pan_v2.csv")
 csv_file_path.parent.mkdir(parents=True, exist_ok=True) # Asegura que la carpeta exista
 
 archivo_log = open(csv_file_path, mode="w", newline="", encoding="utf-8")
 writer = csv.writer(archivo_log)
 # Escribir la cabecera del archivo CSV
-writer.writerow(["timestamp", "error_x", "error_y","u_x","u_y","error_area", "angle_x", "angle_y"])#, "vel_lineal", "vel_giro"])
+writer.writerow(["timestamp", "error_x", "error_y","u_x","u_y","error_area", "angle_x", "angle_y","estado_tracking"])#, "vel_lineal", "vel_giro"])
 
 #Parametros del carrito
 pines_izq = (17, 27, 12)  # Forward, Backward, Enable (PWM)
@@ -99,6 +99,9 @@ try:
         if frame_raw is None:
             break
 
+        # Estado por defecto: No se detecta ni se sigue nada
+        estado_tracking = 0
+
         # Aplicar calibración de cámara
         frame_raw = Apply_cam_calib.corregir_frame(frame_raw, mtx, dist)
         
@@ -114,14 +117,25 @@ try:
         if best_centroid is not None:
             last_detection = time.time()
                  
-        # --- SOLUCIÓN 1: Crear una máscara limpia solo con el contorno MÁS GRANDE ---
-        mask_principal = np.zeros_like(mask_clean)
-        if c is not None and area > area_detect_target:
-            cv2.drawContours(mask_principal, [c], -1, 255, thickness=cv2.FILLED)
-
         # Superponer la detección ÚNICAMENTE del objeto principal
         overlay = frame_bgr.copy()
-        overlay[mask_principal > 0] = [0, 255, 0]
+        
+        # --- Crear la máscara limpia solo con el contorno MÁS GRANDE ---
+        mask_principal = np.zeros_like(mask_clean)
+        
+        if c is not None and area > area_detect_target:
+            # 1. PRIMERO dibujamos el contorno relleno en la máscara principal
+            cv2.drawContours(mask_principal, [c], -1, 255, thickness=cv2.FILLED)
+            
+            # 2. SEGUNDO creamos la capa de color utilizando la máscara ya rellenada
+            color_mask = np.zeros_like(frame_bgr)
+            color_mask[mask_principal > 0] = [100, 255, 0]  # Color verde sólido
+
+            # 3. Definir la transparencia (alpha)
+            alpha = 0.35
+
+            # 4. Mezclar el frame original con la máscara de color translúcida
+            overlay = cv2.addWeighted(frame_bgr, 1.0, color_mask, alpha, 0)
         
         # Inicializar variables de movimiento del chasis por defecto en 0
         velocidad_lineal = 0.0
@@ -130,6 +144,7 @@ try:
         # Dibujar contorno y centroide si se detecta algo o pasa el tiempo para considerar una captura
         if best_centroid or (time.time() - last_detection < detection_timeout):
             if best_centroid:
+                estado_tracking = 1
                 error_x = CENTER_X - best_centroid[0]
                 error_y = CENTER_Y - best_centroid[1]
                 error_area = (TARGET_AREA-area)/TARGET_AREA
@@ -168,7 +183,7 @@ try:
                 adjust_y, 
                 error_area, 
                 angle_x, 
-                angle_y])
+                angle_y,estado_tracking])
             #, 
                #velocidad_lineal, 
                 #velocidad_giro
@@ -197,7 +212,7 @@ try:
             cv2.putText(overlay, "siguiendo", (15, 50), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 255), 1, cv2.LINE_AA)
             cv2.putText(overlay, f"Area-Error_area: {area,TARGET_AREA,error_area}", (15, 75), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 255), 1, cv2.LINE_AA)
             cv2.putText(overlay, f"Velocidad: {vel_izq,vel_der}", (15, 95), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 0), 1, cv2.LINE_AA)
-            print(f"{area,TARGET_AREA}")
+            
         else:
             carro.detener()
 

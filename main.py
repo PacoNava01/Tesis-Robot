@@ -5,6 +5,7 @@ import json
 import numpy as np
 from picamera2 import Picamera2
 import time
+import csv
 
 #Librerias para tareas de CV
 from scr.Vision import Detection_SVM_LUT
@@ -21,7 +22,14 @@ rutas = {
     "Json_calib": Path("/home/pacon/Tesis-Robot/scr/Vision/data_calib/raspberry_pi_hq_calibration.json")
 }
 
+# --- Configuración de registro estadístico ---
+csv_file_path = Path("/home/pacon/Tesis-Robot/docs/data/registro_errores_tilt-pan.csv")
+csv_file_path.parent.mkdir(parents=True, exist_ok=True) # Asegura que la carpeta exista
 
+archivo_log = open(csv_file_path, mode="w", newline="", encoding="utf-8")
+writer = csv.writer(archivo_log)
+# Escribir la cabecera del archivo CSV
+writer.writerow(["timestamp", "error_x", "error_y","u_x","u_y","error_area", "angle_x", "angle_y"])#, "vel_lineal", "vel_giro"])
 
 #Parametros del carrito
 pines_izq = (17, 27, 12)  # Forward, Backward, Enable (PWM)
@@ -138,19 +146,33 @@ try:
                 velocidad_lineal = 0.0
             
             # --- 1. Actualizar eje X (Pan) y eje Y (Tilt) ---
-            angle_x = MG_servo.actualizar_eje(error=error_x,
+            angle_x,adjust_x = MG_servo.actualizar_eje(error=error_x,
                                               dead_zone=dead_zone,
                                               pid_controller=pid_x,
                                               current_angle=angle_x,
                                               limits=angle_x_limit,
                                               servo_id=servo_x)
 
-            angle_y = MG_servo.actualizar_eje(error=error_y,
+            angle_y,adjust_y = MG_servo.actualizar_eje(error=error_y,
                                               dead_zone=dead_zone,
                                               pid_controller=pid_y,
                                               current_angle=angle_y,
                                               limits=angle_y_limit,
                                               servo_id=servo_y)
+            # --- NUEVO: Guardar datos en el archivo de registro ---
+            writer.writerow([
+                time.time(), 
+                error_x, 
+                error_y,
+                adjust_x,
+                adjust_y, 
+                error_area, 
+                angle_x, 
+                angle_y])
+            #, 
+               #velocidad_lineal, 
+                #velocidad_giro
+            #])
 
             # --- 2. Control Angular del Chasis ---
             if abs(angle_x - start_angle) > SERVO_DEAD_ZONE_GIRAR:
@@ -199,5 +221,7 @@ try:
             break
 
 finally:
+    archivo_log.close() # Cierra el archivo CSV de forma segura
     camara.stop()
     cv2.destroyAllWindows()
+    print(f"Datos estadísticos guardados exitosamente en: {csv_file_path}")

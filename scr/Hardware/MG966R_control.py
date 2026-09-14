@@ -32,12 +32,14 @@ def mover_servo(servo, angle: int):
 
 # Función auxiliar para actualizar el servo de manera limpia
 def actualizar_eje(error, dead_zone, pid_controller, current_angle, limits, servo_id):
+    # Inicializamos adjustment en 0 por si estamos en la zona muerta
+    adjustment = 0.0
     if abs(error) > dead_zone:
         adjustment = pid_controller.update(error)
         current_angle = max(limits[0], min(limits[1], current_angle + adjustment))
         # Al estar en el mismo módulo, puedes llamar a mover_servo directamente
         mover_servo(servo_id, current_angle)
-    return current_angle
+    return current_angle,adjustment
 
 def main():
     # Inicializar kit de servos

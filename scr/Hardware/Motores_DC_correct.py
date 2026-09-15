@@ -108,8 +108,8 @@ def menu_pruebas():
     
     opcion = input("Selecciona una opción (1-4): ")
 
-    velocidad_izq = float(input("Introduce la velocidad (0.0 a 1.0): "))
-    velocidad_der = float(input("Introduce la velocidad (0.0 a 1.0): "))
+    velocidad_izq = float(input("Introduce la velocidad del motor izq. (0.0 a 1.0): "))
+    velocidad_der = float(input("Introduce la velocidad del motor der. (0.0 a 1.0): "))
     duracion = float(input("Introduce la duración en segundos: "))
 
     acciones = {

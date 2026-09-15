@@ -58,7 +58,7 @@ def main():
         for angle in LISTA_ANGULOS:
             mover_servo(servo_x, angle)
             time.sleep(2.0)
-            
+        mover_servo(servo_y,110)
         # Ejemplo opcional de movimiento fluido (barrido)
         #print("Realizando barrido suave...")
         #for angle in range(45, 110, 10):

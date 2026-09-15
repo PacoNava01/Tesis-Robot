@@ -94,31 +94,58 @@ class Carro:
         self.stby.off()
         print("Driver apagado y motores detenidos.")
 
+def Giros(Carrito,vel_izq,vel_der):
+    '''Funcion compacta para pruebas de giro '''
+    Carrito.mover(vel_izq,vel_der)
+
+def menu_pruebas():
+    print("\n--- MENÚ DE PRUEBAS DE GIRO ---")
+    print("Opciones disponibles:")
+    print("1. Giro suave")
+    print("2. Giro medio")
+    print("3. Giro asimetrico")
+    print("4. Rotación (spin)")
+    
+    opcion = input("Selecciona una opción (1-4): ")
+
+    velocidad_izq = float(input("Introduce la velocidad (0.0 a 1.0): "))
+    velocidad_der = float(input("Introduce la velocidad (0.0 a 1.0): "))
+    duracion = float(input("Introduce la duración en segundos: "))
+
+    acciones = {
+        "1": "suave",
+        "2": "medio",
+        "3": "asimetrico",
+        "4": "rotacion",
+    }
+
+    return acciones.get(opcion, None), velocidad_izq,velocidad_der, duracion
+
+def ejecucion_giro(Carro, tipo, vel_izq, vel_der, duracion):
+    print(f"Ejecutando giro: {tipo} a una proporción ({vel_izq}, {vel_der}) durante {duracion} segundos")
+    Giros(Carro, vel_izq, vel_der)
+    time.sleep(duracion)
+    Carro.detener()
+
 
 if __name__ == "__main__":
-    # Definición de pines (GPIOs físicos de la Raspberry Pi)
-    pines_izq = (17, 27, 12)  # Forward, Backward, Enable (PWM)
-    pines_der = (23, 22, 13)  # Forward, Backward, Enable (PWM)
+    pines_izq = (17, 27, 12)
+    pines_der = (23, 22, 13)
     pin_stby = 24
 
-    # Uso seguro mediante Context Manager ('with')
     try:
         with Carro(pines_izq, pines_der, pin_stby) as carrito:
-            #print("Avanzando durante 2 segundos...")
-            #carrito.accion('derecha', velocidad=0.5)
-            #carrito.accion('avanzar', velocidad=0.2)
-            #time.sleep(1.0)
+            while True:
+                tipo, vel_izq, vel_der, duracion = menu_pruebas()
+                if tipo is None:
+                    print("Selecciona una opción válida, intenta de nuevo.")
+                    continue
 
-            #print("Girando a la izquierda...")
-            #carrito.accion('izquierda', velocidad=0.5)
-            #time.sleep(1.0)
+                ejecucion_giro(carrito, tipo, vel_izq, vel_der, duracion)
 
-            #print("Deteniendo...")
-            #carrito.detener()
-            #time.sleep(1.0)
-            
-            carrito.mover(0.6,-0.6)
-            time.sleep(1)
-            
+                seguir = input("\n¿Quieres hacer otra prueba? (s/n): ")
+                if seguir.lower() != "s":
+                    break    
+
     except KeyboardInterrupt:
         print("\nOperación interrumpida por el usuario.")

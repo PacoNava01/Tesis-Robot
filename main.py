@@ -83,6 +83,31 @@ kit =  MG_servo.init_servos(2,PULSE_WIDTH_RANGE,180)
 servo_x = kit.servo[0] #Horizontal
 servo_y = kit.servo[1] #Vertical
 
+# --- Funciones auxiliares ---
+def calcular_velocidades(error_area, angle_x, start_angle, pid_linear, SERVO_DEAD_ZONE_GIRAR):
+    # Control lineal
+    if abs(error_area) > AREA_DEAD_ZONE:
+        velocidad_lineal = pid_linear.update(error_area)
+        velocidad_lineal = np.clip(velocidad_lineal, -1.0, 1.0)
+    else:
+        velocidad_lineal = 0.0
+
+    # Control angular
+    if abs(angle_x - start_angle) > SERVO_DEAD_ZONE_GIRAR:
+        velocidad_giro = 0.4 if angle_x > start_angle else -0.4
+    else:
+        velocidad_giro = 0.0
+
+    # Combinación
+    vel_izq = round(np.clip(velocidad_lineal - velocidad_giro, -1.0, 1.0), 2)
+    vel_der = round(np.clip(velocidad_lineal + velocidad_giro, -1.0, 1.0), 2)
+
+    return vel_izq, vel_der
+
+
+def suavizar_velocidad(vel_actual, vel_nueva, alpha=0.3):
+    """Filtro exponencial para suavizar cambios bruscos"""
+    return vel_actual * (1 - alpha) + vel_nueva * alpha
 
 if camara is None:
     print("Un problema ocurrió con la cámara")
@@ -94,146 +119,103 @@ try:
     mtx,dist = Apply_cam_calib.cargar_calibracion(rutas["Json_calib"])
     print("Parametro de calibracion cargados exitosamente")
     
-    while True:
-        frame_raw = camara.capture_array()
-        if frame_raw is None:
-            break
+# --- BLOQUE PRINCIPAL ---
+vel_izq_actual, vel_der_actual = 0.0, 0.0  # Inicialización de velocidades
 
-        # Estado por defecto: No se detecta ni se sigue nada
-        estado_tracking = 0
+while True:
+    frame_raw = camara.capture_array()
+    if frame_raw is None:
+        break
 
-        # Aplicar calibración de cámara
-        frame_raw = Apply_cam_calib.corregir_frame(frame_raw, mtx, dist)
-        
-        mask, frame_bgr = Detection_SVM_LUT.Preprocess(frame_raw, rotate=False)
+    estado_tracking = 0
+    frame_raw = Apply_cam_calib.corregir_frame(frame_raw, mtx, dist)
+    mask, frame_bgr = Detection_SVM_LUT.Preprocess(frame_raw, rotate=False)
 
-        # Aplicamos limpieza morfológica
-        mask_clean = cv2.morphologyEx(mask, cv2.MORPH_OPEN, kernel)
-        mask_clean = cv2.morphologyEx(mask_clean, cv2.MORPH_CLOSE, kernel)
-        mask_clean = cv2.GaussianBlur(mask_clean, (11, 11), 0)
-        
-        best_centroid, area, last_detection, c = Detection_SVM_LUT.calcular_centroide_y_area(mask_clean, area_detect_target)     
+    mask_clean = cv2.morphologyEx(mask, cv2.MORPH_OPEN, kernel)
+    mask_clean = cv2.morphologyEx(mask_clean, cv2.MORPH_CLOSE, kernel)
+    mask_clean = cv2.GaussianBlur(mask_clean, (11, 11), 0)
 
-        if best_centroid is not None:
-            last_detection = time.time()
-                 
-        # Superponer la detección ÚNICAMENTE del objeto principal
-        overlay = frame_bgr.copy()
-        
-        # --- Crear la máscara limpia solo con el contorno MÁS GRANDE ---
-        mask_principal = np.zeros_like(mask_clean)
-        
-        if c is not None and area > area_detect_target:
-            # 1. PRIMERO dibujamos el contorno relleno en la máscara principal
-            cv2.drawContours(mask_principal, [c], -1, 255, thickness=cv2.FILLED)
-            
-            # 2. SEGUNDO creamos la capa de color utilizando la máscara ya rellenada
-            color_mask = np.zeros_like(frame_bgr)
-            color_mask[mask_principal > 0] = [100, 255, 0]  # Color verde sólido
+    best_centroid, area, last_detection, c = Detection_SVM_LUT.calcular_centroide_y_area(
+        mask_clean, area_detect_target
+    )
 
-            # 3. Definir la transparencia (alpha)
-            alpha = 0.35
+    if best_centroid is not None:
+        last_detection = time.time()
 
-            # 4. Mezclar el frame original con la máscara de color translúcida
-            overlay = cv2.addWeighted(frame_bgr, 1.0, color_mask, alpha, 0)
-        
-        # Inicializar variables de movimiento del chasis por defecto en 0
-        velocidad_lineal = 0.0
-        velocidad_giro = 0.0
+    overlay = frame_bgr.copy()
+    mask_principal = np.zeros_like(mask_clean)
 
-        # Dibujar contorno y centroide si se detecta algo o pasa el tiempo para considerar una captura
-        if best_centroid or (time.time() - last_detection < detection_timeout):
-            if best_centroid:
-                estado_tracking = 1
-                error_x = CENTER_X - best_centroid[0]
-                error_y = CENTER_Y - best_centroid[1]
-                error_area = (TARGET_AREA-area)/TARGET_AREA
-                
-                if abs(error_area) > AREA_DEAD_ZONE:
-                    velocidad_lineal = pid_linear.update(error_area)
-                    velocidad_lineal = max(-1.0, min(1.0, velocidad_lineal))
-                else:
-                    velocidad_lineal = 0.0
-            else:
-                error_x = pid_x.last_error
-                error_y = pid_y.last_error
-                error_area = getattr(pid_linear, 'last_error', 0)
-                velocidad_lineal = 0.0
-            
-            # --- 1. Actualizar eje X (Pan) y eje Y (Tilt) ---
-            angle_x,adjust_x = MG_servo.actualizar_eje(error=error_x,
-                                              dead_zone=dead_zone,
-                                              pid_controller=pid_x,
-                                              current_angle=angle_x,
-                                              limits=angle_x_limit,
-                                              servo_id=servo_x)
+    if c is not None and area > area_detect_target:
+        cv2.drawContours(mask_principal, [c], -1, 255, thickness=cv2.FILLED)
+        color_mask = np.zeros_like(frame_bgr)
+        color_mask[mask_principal > 0] = [100, 255, 0]
+        overlay = cv2.addWeighted(frame_bgr, 1.0, color_mask, 0.35, 0)
 
-            angle_y,adjust_y = MG_servo.actualizar_eje(error=error_y,
-                                              dead_zone=dead_zone,
-                                              pid_controller=pid_y,
-                                              current_angle=angle_y,
-                                              limits=angle_y_limit,
-                                              servo_id=servo_y)
-            # --- NUEVO: Guardar datos en el archivo de registro ---
-            writer.writerow([
-                time.time(), 
-                error_x, 
-                error_y,
-                adjust_x,
-                adjust_y, 
-                error_area, 
-                angle_x, 
-                angle_y,estado_tracking])
-            #, 
-               #velocidad_lineal, 
-                #velocidad_giro
-            #])
-
-            # --- 2. Control Angular del Chasis ---
-            if abs(angle_x - start_angle) > SERVO_DEAD_ZONE_GIRAR:
-                if angle_x > start_angle:
-                    velocidad_giro = 0.4   
-                else:
-                    velocidad_giro = -0.4  
-
-            # --- 3. Combinar y Enviar al Carro ---
-            vel_izq = round(max(-1.0, min(1.0, velocidad_lineal - velocidad_giro)),2)
-            vel_der = round(max(-1.0, min(1.0, velocidad_lineal + velocidad_giro)),2)
-            
-            #carro.mover(vel_izq, vel_der)
-
-            # --- SOLUCIÓN 2: Dibujos correctamente indentados dentro de la detección ---
-            if c is not None:
-                cv2.drawContours(overlay, [c], -1, (255, 0, 0), 2)  # Contorno azul
-            
-            if best_centroid:
-                cv2.circle(overlay, best_centroid, 5, (0, 0, 255), -1)  # Círculo rojo relleno
-            
-            cv2.putText(overlay, "siguiendo", (15, 50), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 255), 1, cv2.LINE_AA)
-            cv2.putText(overlay, f"Area-Error_area: {area,TARGET_AREA,error_area}", (15, 75), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 255), 1, cv2.LINE_AA)
-            cv2.putText(overlay, f"Velocidad: {vel_izq,vel_der}", (15, 95), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 0), 1, cv2.LINE_AA)
-            
+    # --- CONTROL DE MOTORES ---
+    if best_centroid or (time.time() - last_detection < detection_timeout):
+        if best_centroid:
+            estado_tracking = 1
+            error_x = CENTER_X - best_centroid[0]
+            error_y = CENTER_Y - best_centroid[1]
+            error_area = (TARGET_AREA - area) / TARGET_AREA
         else:
-            carro.detener()
+            # Fallback: usar último error registrado
+            error_x = pid_x.last_error
+            error_y = pid_y.last_error
+            error_area = getattr(pid_linear, "last_error", 0)
 
-        cv2.putText(
-            overlay,
-            "Enter/Q: Salir",
-            (15, 30),
-            cv2.FONT_HERSHEY_SIMPLEX,
-            0.5,
-            (250, 0, 100),
-            1,
-            cv2.LINE_AA,
+        # Actualizar servos
+        angle_x, adjust_x = MG_servo.actualizar_eje(
+            error=error_x, dead_zone=dead_zone,
+            pid_controller=pid_x, current_angle=angle_x,
+            limits=angle_x_limit, servo_id=servo_x
         )
-        
-        # Mostrar vista combinada (Overlay de detección y la máscara limpia del objeto principal)
-        horizontal = np.hstack((overlay, cv2.cvtColor(mask_principal, cv2.COLOR_GRAY2BGR)))
-        cv2.imshow(window_name, horizontal)
-        
-        tecla = cv2.waitKey(10) & 0xFF
-        if tecla == 13 or tecla == ord("q"):
-            break
+        angle_y, adjust_y = MG_servo.actualizar_eje(
+            error=error_y, dead_zone=dead_zone,
+            pid_controller=pid_y, current_angle=angle_y,
+            limits=angle_y_limit, servo_id=servo_y
+        )
+
+        # Guardar log
+        writer.writerow([
+            time.time(), error_x, error_y,
+            adjust_x, adjust_y, error_area,
+            angle_x, angle_y, estado_tracking
+        ])
+
+        # Calcular velocidades nuevas
+        vel_izq_nueva, vel_der_nueva = calcular_velocidades(error_area, angle_x, start_angle, pid_linear, SERVO_DEAD_ZONE_GIRAR)
+
+        # Suavizar transición
+        vel_izq_actual = suavizar_velocidad(vel_izq_actual, vel_izq_nueva)
+        vel_der_actual = suavizar_velocidad(vel_der_actual, vel_der_nueva)
+
+        carro.mover(vel_izq_actual, vel_der_actual)
+
+        # Dibujos
+        if c is not None:
+            cv2.drawContours(overlay, [c], -1, (255, 0, 0), 2)
+        if best_centroid:
+            cv2.circle(overlay, best_centroid, 5, (0, 0, 255), -1)
+
+        cv2.putText(overlay, "siguiendo", (15, 50), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 255), 1)
+        cv2.putText(overlay, f"Area-Error_area: {area,TARGET_AREA,error_area}", (15, 75), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 255), 1)
+        cv2.putText(overlay, f"Velocidad: {vel_izq_actual:.2f},{vel_der_actual:.2f}", (15, 95), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 0), 1)
+
+    else:
+        # Fallback seguro: detener progresivamente
+        vel_izq_actual = suavizar_velocidad(vel_izq_actual, 0.0)
+        vel_der_actual = suavizar_velocidad(vel_der_actual, 0.0)
+        carro.mover(vel_izq_actual, vel_der_actual)
+
+    cv2.putText(overlay, "Enter/Q: Salir", (15, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (250, 0, 100), 1)
+    horizontal = np.hstack((overlay, cv2.cvtColor(mask_principal, cv2.COLOR_GRAY2BGR)))
+    cv2.imshow(window_name, horizontal)
+
+    tecla = cv2.waitKey(10) & 0xFF
+    if tecla == 13 or tecla == ord("q"):
+        break
+
 
 finally:
     archivo_log.close() # Cierra el archivo CSV de forma segura

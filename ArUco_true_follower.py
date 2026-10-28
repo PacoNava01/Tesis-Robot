@@ -372,6 +372,8 @@ def obtener_centro_objetivo(corners, ids, target_id):
 def filtrar_error(error_actual, error_nuevo, alpha=0.2):
     """Filtro exponencial aplicado al error para suavizar el movimiento de servos y motores."""
     return error_actual * (1 - alpha) + error_nuevo * alpha
+#--- Interruptor Global ---
+MODO_PRUEBA_DISTANCIA = True
 
 try:
     try:
@@ -387,6 +389,11 @@ try:
     servo_x = kit.servo[0]  # Horizontal
     servo_y = kit.servo[1]  # Vertical
 
+    if MODO_PRUEBA_DISTANCIA:
+        servo_x.angle = 90
+        servo_y.angle = 90
+        print("MODO PRUEBA DISTANCIA ACTIVADO -> Servos bloqueados en 90°")
+    
     #Lectura de calibracion JSON
     
     # Cargar calibración de la cámara
@@ -405,7 +412,12 @@ try:
     pid_y = PID(kP=0.006, kI=0.001,  kD=0.0020)  # Más ágil en Y (con menos Ki para evitar retrasos)
 
     #Posicionamiento inicial de los servos en un "angulo seguro"
-    angle_x, angle_y = START_ANGLE, START_ANGLE
+    if MODO_PRUEBA_DISTANCIA:
+        angle_x = 90.0
+        angle_y = 90.0
+    else:
+        angle_x = START_ANGLE
+        angle_y = START_ANGLE
 
     while True:
         frame_raw = camara.capture_array()
@@ -467,20 +479,32 @@ try:
 
             estado_tracking = 1
 
-            # Actualizar servos.
-            angle_x, adjust_x = MG_servo.actualizar_eje(error=error_x_filtrado,
-                                                        dead_zone=DEAD_ZONE,
-                                                        pid_controller=pid_x,
-                                                        current_angle=angle_x,
-                                                        limits=ANGLE_X_LIMIT,
-                                                        servo_id=servo_x,)
+            if not MODO_PRUEBA_DISTANCIA:
 
-            angle_y, adjust_y = MG_servo.actualizar_eje(error=error_y_filtrado,
-                                                        dead_zone=DEAD_ZONE,
-                                                        pid_controller=pid_y,
-                                                        current_angle=angle_y,
-                                                        limits=ANGLE_Y_LIMIT,
-                                                        servo_id=servo_y,)
+                angle_x, adjust_x = MG_servo.actualizar_eje(
+                    error=error_x_filtrado,
+                    dead_zone=DEAD_ZONE,
+                    pid_controller=pid_x,
+                    current_angle=angle_x,
+                    limits=ANGLE_X_LIMIT,
+                    servo_id=servo_x,
+                )
+            
+                angle_y, adjust_y = MG_servo.actualizar_eje(
+                    error=error_y_filtrado,
+                    dead_zone=DEAD_ZONE,
+                    pid_controller=pid_y,
+                    current_angle=angle_y,
+                    limits=ANGLE_Y_LIMIT,
+                    servo_id=servo_y,
+                )
+
+            else:
+                angle_x = 90.0
+                angle_y = 90.0
+            
+                servo_x.angle = 90
+                servo_y.angle = 90
 
             # Información visual del seguimiento.
             cv2.circle(frame,(CENTER_X, CENTER_Y),5,(255, 0, 0),-1)
@@ -521,6 +545,16 @@ try:
 
         # Generar y mostrar la ventana de la gráfica
         img_grafica = generar_grafica_error(historial_error_x, historial_error_y)
+        if MODO_PRUEBA_DISTANCIA:
+            cv2.putText(
+                frame,
+                "MODO PRUEBA DISTANCIA - SERVOS BLOQUEADOS",
+                (10, FRAME_H - 20),
+                cv2.FONT_HERSHEY_SIMPLEX,
+                0.6,
+                (0, 255, 255),
+                2
+            )
         cv2.imshow("Grafica Error PID", img_grafica)
         cv2.imshow("Seguimiento ArUco", frame)
 

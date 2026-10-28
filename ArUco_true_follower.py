@@ -13,6 +13,7 @@ import cv2
 import cv2.aruco as aruco
 import numpy as np
 from pathlib import Path
+from collections import deque
 from picamera2 import Picamera2
 from dataclasses import dataclass
 
@@ -49,7 +50,7 @@ AREA_DETECT_TARGET = 1200
 
 TARGET_AREA = 153000  # Área ideal que debe ocupar el objeto en píxeles
 AREA_DEAD_ZONE = 0.05  # 5% de tolerancia
-DEAD_ZONE = 5
+DEAD_ZONE = 10
 DETECTION_TIMEOUT = 0.2
 
 # --- Parámetros de servomotores y chasis ---
@@ -71,6 +72,12 @@ CENTER_X, CENTER_Y = FRAME_W // 2, FRAME_H // 2
 # Estado del seguimiento
 TARGET_MARKER_ID = 2  # Cambia al ID que quieras seguir
 
+# Historial para guardar los últimos 150 valores de error para la gráfica
+MAX_HISTORIAL = 150
+historial_error_x = deque(maxlen=MAX_HISTORIAL)
+historial_error_y = deque(maxlen=MAX_HISTORIAL)
+
+
 last_detection = None
 last_error_x = 0.0
 last_error_y = 0.0
@@ -79,6 +86,55 @@ error_x_filtrado = 0.0
 error_y_filtrado = 0.0
 
 cx, cy = None, None
+
+def generar_grafica_error(hist_x, hist_y, ancho=600, alto=200):
+    """Crea una imagen con la gráfica en tiempo real de los errores X e Y."""
+    # Crear un lienzo negro
+    canvas = np.zeros((alto, ancho, 3), dtype=np.uint8)
+    canvas[:] = (30, 30, 30)  # Fondo gris oscuro
+
+    # Dibujar línea central (Error = 0)
+    centro_y = alto // 2
+    cv2.line(canvas, (0, centro_y), (ancho, centro_y), (80, 80, 80), 1)
+
+    # Textos de referencia
+    cv2.putText(canvas, "Error = 0", (10, centro_y - 5), cv2.FONT_HERSHEY_SIMPLEX, 0.35, (120, 120, 120), 1)
+    cv2.putText(canvas, "X: Azul | Y: Verde", (10, 20), cv2.FONT_HERSHEY_SIMPLEX, 0.4, (200, 200, 200), 1)
+
+    if len(hist_x) < 2:
+        return canvas
+
+    # Calcular el paso en el eje X según el ancho de la ventana y el historial
+    paso_x = ancho / MAX_HISTORIAL
+
+    # Factor de escala vertical para adaptar el error en píxeles a la altura de la gráfica
+    # Asumimos un rango de error aproximado de -320 a 320
+    escala_y = (alto / 2) / 320.0
+
+    # Dibujar historial de X (Color Azul)
+    puntos_x = []
+    for i, err in enumerate(hist_x):
+        px = int(i * paso_x)
+        py = int(centro_y - (err * escala_y))
+        # Limitar para que no se salga de la imagen
+        py = max(0, min(alto - 1, py))
+        puntos_x.append((px, py))
+    
+    for i in range(len(puntos_x) - 1):
+        cv2.line(canvas, puntos_x[i], puntos_x[i+1], (255, 100, 0), 2)
+
+    # Dibujar historial de Y (Color Verde)
+    puntos_y = []
+    for i, err in enumerate(hist_y):
+        px = int(i * paso_x)
+        py = int(centro_y - (err * escala_y))
+        py = max(0, min(alto - 1, py))
+        puntos_y.append((px, py))
+    
+    for i in range(len(puntos_y) - 1):
+        cv2.line(canvas, puntos_y[i], puntos_y[i+1], (0, 200, 0), 2)
+
+    return canvas
 
 #Funciones extraidas del repositorio Unam-Space
 
@@ -345,8 +401,8 @@ try:
 
 
     # Inicializar controladores PID de servomotores
-    pid_x = PID(kP=0.010, kI=0.01, kD=0.001)
-    pid_y = PID(kP=0.010, kI=0.01, kD=0.001)
+    pid_x = PID(kP=0.007, kI=0.0001, kD=0.0030)  # Más ágil en X
+    pid_y = PID(kP=0.006, kI=0.001,  kD=0.0020)  # Más ágil en Y (con menos Ki para evitar retrasos)
 
     #Posicionamiento inicial de los servos en un "angulo seguro"
     angle_x, angle_y = START_ANGLE, START_ANGLE
@@ -363,15 +419,36 @@ try:
         # el frame original.
         frame = frame_raw.copy()
 
-        corners, ids, rejected = detect_aruco_markers(frame_raw,detector_info)
+        corners, ids, rejected = detect_aruco_markers(frame_raw, detector_info)
 
-        # Dibujar todos los marcadores detectados.
+        poses = []
         if ids is not None:
-            cv2.aruco.drawDetectedMarkers(frame, corners, ids)
+            # 1. Estimar la pose (incluye el cálculo de distancias con tvec)
+            poses = estimate_marker_pose(corners, ids, MARKER_LENGTH, mtx, dist)
+            
+            # 2. Dibujar la pose completa: ejes 3D, ID, distancia y ángulos de Euler
+            frame = draw_pose(frame, corners, ids, poses, MARKER_LENGTH, mtx, dist)
+            
+            # 3. Dibujar los centros si lo deseas mantener
             frame = dibujar_centros(frame, corners, ids)
 
         # Buscar únicamente el marcador objetivo.
-        centro = obtener_centro_objetivo(corners,ids,TARGET_MARKER_ID)
+        centro = obtener_centro_objetivo(corners, ids, TARGET_MARKER_ID)
+
+        # --- AQUÍ COLOCAS LA LÓGICA DE DISTANCIA ---
+        distancia_objetivo = None
+        for pose in poses:
+            if pose.marker_id == TARGET_MARKER_ID:
+                distancia_objetivo = pose.distance
+                break
+        if distancia_objetivo is not None:
+            print(f"Distancia al objetivo (ID {TARGET_MARKER_ID}): {distancia_objetivo:.2f} metros")
+            
+            # EJEMPLO DE CONTROL DE MOVIMIENTO:
+            # Si está a menos de 50 cm (0.5 metros), podrías hacer algo:
+            # if distancia_objetivo < 0.5:
+            #     print("¡Objeto alcanzado! Deteniendo motores...")
+            #     # Motores_DC_correct.detener(...)
 
         if centro is not None:
             cx, cy = centro
@@ -438,7 +515,13 @@ try:
 
                 cv2.putText(frame,"Marcador no detectado",(10, 25),
                             cv2.FONT_HERSHEY_SIMPLEX,0.6,(0, 0, 255),2)
+        # === ALIMENTAR LA GRÁFICA EN CADA ITERACIÓN ===
+        historial_error_x.append(error_x_filtrado)
+        historial_error_y.append(error_y_filtrado)
 
+        # Generar y mostrar la ventana de la gráfica
+        img_grafica = generar_grafica_error(historial_error_x, historial_error_y)
+        cv2.imshow("Grafica Error PID", img_grafica)
         cv2.imshow("Seguimiento ArUco", frame)
 
         tecla = cv2.waitKey(10) & 0xFF

@@ -2,11 +2,16 @@ from gpiozero import Robot, Motor, OutputDevice
 import math
 import time
 
+
 class Carro:
     """
-    Controlador avanzado para un carro diferencial con compensación 
-    polinomica de velocidad para el motor derecho y gestión de driver (STBY).
+    Controlador para un robot diferencial con:
+
+    - Compensación polinómica del motor derecho.
+    - Gestión del pin STBY del driver.
+    - Estimación cinemática de velocidades reales.
     """
+
     COEFS = {
         'a': 0.9356779218031275,
         'b': -1.864449111530371,
@@ -14,177 +19,397 @@ class Carro:
         'd': -0.2070794160209165
     }
 
-    def __init__(self, left_pins: tuple, right_pins: tuple, stby_pin: int, invertir_stby: bool = False):
-        # Configuración del pin de standby del driver (ej. TB6612FNG o L298N)
-        self.stby = OutputDevice(stby_pin, active_high=not invertir_stby)
+    def __init__(
+        self,
+        left_pins: tuple,
+        right_pins: tuple,
+        stby_pin: int,
+        invertir_stby: bool = False
+    ):
+        """
+        Parameters
+        ----------
+        left_pins : (IN1, IN2, PWM)
+        right_pins : (IN1, IN2, PWM)
+        stby_pin : Pin STBY del driver
+        invertir_stby : True si STBY es activo en bajo
+        """
+
+        self.stby = OutputDevice(
+            stby_pin,
+            active_high=not invertir_stby
+        )
+
         self.activar_driver()
 
-        # Configuración de motores usando gpiozero
-        motor_izq = Motor(forward=left_pins[0], backward=left_pins[1], enable=left_pins[2])
-        motor_der = Motor(forward=right_pins[0], backward=right_pins[1], enable=right_pins[2])
+        motor_izq = Motor(
+            forward=left_pins[0],
+            backward=left_pins[1],
+            enable=left_pins[2]
+        )
 
-        self.robot = Robot(left=motor_izq, right=motor_der)
+        motor_der = Motor(
+            forward=right_pins[0],
+            backward=right_pins[1],
+            enable=right_pins[2]
+        )
+
+        self.robot = Robot(
+            left=motor_izq,
+            right=motor_der
+        )
+
+    # ============================================================
+    # Context Manager
+    # ============================================================
 
     def __enter__(self):
-        """Permite usar la clase con la sentencia 'with'."""
         return self
 
     def __exit__(self, exc_type, exc_val, exc_tb):
-        """Asegura apagar el driver de forma segura al salir del contexto."""
         self.apagar_driver()
 
-    def _clamp(self, v: float, minimo: float = -1.0, maximo: float = 1.0) -> float:
-        """Limita los valores de PWM dentro del rango físico permitido."""
-        return max(minimo, min(maximo, v))
+    # ============================================================
+    # Métodos auxiliares
+    # ============================================================
+
+    @staticmethod
+    def _clamp(
+        valor: float,
+        minimo: float = -1.0,
+        maximo: float = 1.0
+    ) -> float:
+        """Limita un valor al rango permitido."""
+        return max(minimo, min(maximo, valor))
 
     def _compensacion(self, pwm: float) -> float:
-        """Calcula el factor de corrección basado en el polinomio experimental."""
-        a, b, c, d = (self.COEFS[k] for k in ('a', 'b', 'c', 'd'))
+        """
+        Obtiene el factor de corrección polinómico
+        para el motor derecho.
+        """
+
+        a, b, c, d = (
+            self.COEFS[k]
+            for k in ('a', 'b', 'c', 'd')
+        )
+
         x = max(0.4, min(1.0, pwm))
-        error = a * x**3 + b * x**2 + c * x + d
+
+        error = (
+            a * x**3 +
+            b * x**2 +
+            c * x +
+            d
+        )
+
         return 1 - error
 
-    def _compensar_derecho(self, v: float) -> float:
-        """Aplica la compensación asimétrica exclusiva al motor derecho."""
-        magnitud = abs(v)
-        if magnitud < 0.4:
-            return v
-        factor = self._compensacion(magnitud)
-        return math.copysign(magnitud * factor - 0.2, v)
+    def _compensar_derecho(self, velocidad: float) -> float:
+        """
+        Aplica compensación únicamente al motor derecho.
+        """
 
-    def mover(self, vel_izq: float, vel_der: float):
-        """Envía velocidades independientes aplicando compensación solo en movimiento lineal."""
+        magnitud = abs(velocidad)
+
+        if magnitud < 0.4:
+            return velocidad
+
+        factor = self._compensacion(magnitud)
+
+        return math.copysign(
+            magnitud * factor - 0.2,
+            velocidad
+        )
+
+    # ============================================================
+    # Cinemática
+    # ============================================================
+
+    def _pwm_a_velocidad_fisica(self, pwm_norm: float) -> float:
+        """
+        Convierte PWM normalizado [-1,1] a velocidad física [cm/s].
+
+        Modelo experimental:
+            v = 0.58(PWM %) + 15.53
+
+        válido para PWM >= 40 %
+        """
+
+        magnitud = abs(pwm_norm)
+
+        if magnitud < 0.4:
+            return 0.0
+
+        pwm_porcentaje = magnitud * 100.0
+
+        velocidad = (
+            0.58 * pwm_porcentaje +
+            15.53
+        )
+
+        return math.copysign(
+            velocidad,
+            pwm_norm
+        )
+
+    def estimar_velocidades_chasis(
+        self,
+        vel_izq: float,
+        vel_der: float,
+        ancho_via_cm: float = 20.0
+    ):
+        """
+        Estima velocidades reales del robot.
+
+        Returns
+        -------
+        (v, omega)
+
+        v      : velocidad lineal [cm/s]
+        omega  : velocidad angular [rad/s]
+        """
+
+        v_i_pwm = self._clamp(vel_izq)
+
+        if vel_izq * vel_der < 0:
+            v_d_pwm = self._clamp(vel_der)
+        else:
+            v_d_pwm = self._clamp(
+                self._compensar_derecho(vel_der)
+            )
+
+        v_L = self._pwm_a_velocidad_fisica(v_i_pwm)
+        v_R = self._pwm_a_velocidad_fisica(v_d_pwm)
+
+        v_centro = (v_L + v_R) / 2.0
+
+        omega = (
+            (v_R - v_L) /
+            ancho_via_cm
+        )
+
+        return v_centro, omega
+
+    # ============================================================
+    # Movimiento
+    # ============================================================
+
+    def mover(
+        self,
+        vel_izq: float,
+        vel_der: float
+    ):
+        """
+        Envía velocidades independientes a los motores.
+        """
+
         v_i = self._clamp(vel_izq)
-        
-        # Si tienen signos opuestos, están girando sobre su propio eje (spin).
-        # Aplicar compensación asimétrica aquí suele desbalancear el giro.
-        if v_i * vel_der < 0:
+
+        # Rotación sobre el eje
+        if vel_izq * vel_der < 0:
             v_d = self._clamp(vel_der)
         else:
-            v_d = self._clamp(self._compensar_derecho(vel_der))
-        
+            v_d = self._clamp(
+                self._compensar_derecho(vel_der)
+            )
+
         self.robot.left_motor.value = v_i
         self.robot.right_motor.value = v_d
 
-    def accion(self, tipo: str, velocidad: float = 0.5):
-        """Ejecuta acciones predefinidas de movimiento."""
+    def accion(
+        self,
+        tipo: str,
+        velocidad: float = 0.5
+    ):
+        """
+        Acciones predefinidas.
+        """
+
         acciones = {
-            'avanzar': (velocidad, velocidad),
-            'retroceder': (-velocidad, -velocidad),
-            'izquierda': (-velocidad, velocidad),
-            'derecha': (velocidad, -velocidad)
+            "avanzar": (velocidad, velocidad),
+            "retroceder": (-velocidad, -velocidad),
+            "izquierda": (-velocidad, velocidad),
+            "derecha": (velocidad, -velocidad)
         }
+
         if tipo in acciones:
-            v_i, v_d = acciones[tipo]
-            self.mover(v_i, v_d)
+            vi, vd = acciones[tipo]
+            self.mover(vi, vd)
         else:
             print(f"Acción '{tipo}' no reconocida.")
 
     def detener(self):
-        """Detiene ambos motores inmediatamente."""
+        """Detención inmediata."""
         self.robot.stop()
 
+    # ============================================================
+    # Driver
+    # ============================================================
+
     def activar_driver(self):
-        """Habilita el driver de potencia."""
+        """Habilita el driver."""
         self.stby.on()
 
     def apagar_driver(self):
-        """Detiene los motores y deshabilita el driver por seguridad."""
+        """Apaga el driver de forma segura."""
         self.detener()
         self.stby.off()
-        print("Driver apagado y motores detenidos.")
+        print("\nDriver apagado. Motores detenidos.")
 
 
+# ============================================================
+# Utilidades de interfaz
+# ============================================================
 
-def estimar_velocidades_chasis(self,vel_izq: float,vel_der: float,L_ancho_via_cm: float = 20.0):
-    """
-    Estima la velocidad lineal v (cm/s) y la velocidad angular w (rad/s)
-    real del robot en base a los comandos normalizados y la compensación
-    del polinomio.
+def leer_velocidad(mensaje):
+    while True:
+        try:
+            valor = float(input(mensaje))
 
-    L_ancho_via_cm: Distancia física entre ruedas izquierdas y derechas (en cm).
-    """
+            if -1.0 <= valor <= 1.0:
+                return valor
 
-    # 1. Obtener los valores PWM ajustados por tu script
-    v_i_pwm = self._clamp(vel_izq)
-    v_d_pwm = self._clamp(self._compensar_derecho(vel_der))
+            print("Valor fuera de rango [-1.0, 1.0]")
 
-# 2. Función auxiliar para mapear PWM -> Velocidad física (cm/s)
-# Basado en la caracterización:
-# v = 0.58 * (PWM %) + 15.53 (para PWM >= 40 %)
-def pwm_a_velocidad_fisica(pwm_norm):
-    magnitud = abs(pwm_norm)
+        except ValueError:
+            print("Introduce un número válido.")
 
-    if magnitud < 0.4:
-        return 0.0  # Zona muerta por debajo del 40 %
 
-    pwm_porcentaje = magnitud * 100.0
-    v_cm_s = 0.58 * pwm_porcentaje + 15.53
+def leer_flotante_positivo(mensaje):
+    while True:
+        try:
+            valor = float(input(mensaje))
 
-    return math.copysign(v_cm_s, pwm_norm)
+            if valor > 0:
+                return valor
 
-# Velocidades de las ruedas en cm/s
-v_L = pwm_a_velocidad_fisica(v_i_pwm)
-v_R = pwm_a_velocidad_fisica(v_d_pwm)
+            print("Introduce un valor positivo.")
 
-# 3. Cinemática directa
-v_centro = (v_R + v_L) / 2.0          # Velocidad lineal del robot (cm/s)
-omega_chasis = (v_R - v_L) / L_ancho_via_cm  # Velocidad angular (rad/s)
+        except ValueError:
+            print("Entrada no válida.")
 
-return v_centro, omega_chasis
-
-def Giros(Carrito,vel_izq,vel_der):
-    '''Funcion compacta para pruebas de giro '''
-    Carrito.mover(vel_izq,vel_der)
 
 def menu_pruebas():
-    print("\n--- MENÚ DE PRUEBAS DE GIRO ---")
-    print("Opciones disponibles:")
+    print("\n========== MENÚ DE GIROS ==========")
     print("1. Giro suave")
     print("2. Giro medio")
-    print("3. Giro asimetrico")
+    print("3. Giro asimétrico")
     print("4. Rotación (spin)")
-    
-    opcion = input("Selecciona una opción (1-4): ")
+    print("===================================")
 
-    velocidad_izq = float(input("Introduce la velocidad del motor izq. (0.0 a 1.0): "))
-    velocidad_der = float(input("Introduce la velocidad del motor der. (0.0 a 1.0): "))
-    duracion = float(input("Introduce la duración en segundos: "))
+    opcion = input("Selecciona opción (1-4): ")
 
     acciones = {
         "1": "suave",
         "2": "medio",
         "3": "asimetrico",
-        "4": "rotacion",
+        "4": "rotacion"
     }
 
-    return acciones.get(opcion, None), velocidad_izq,velocidad_der, duracion
+    tipo = acciones.get(opcion)
 
-def ejecucion_giro(Carro, tipo, vel_izq, vel_der, duracion):
-    print(f"Ejecutando giro: {tipo} a una proporción ({vel_izq}, {vel_der}) durante {duracion} segundos")
-    Giros(Carro, vel_izq, vel_der)
+    if tipo is None:
+        return None, None, None, None
+
+    vel_izq = leer_velocidad(
+        "Velocidad izquierda [-1.0,1.0]: "
+    )
+
+    vel_der = leer_velocidad(
+        "Velocidad derecha [-1.0,1.0]: "
+    )
+
+    duracion = leer_flotante_positivo(
+        "Duración [s]: "
+    )
+
+    return (
+        tipo,
+        vel_izq,
+        vel_der,
+        duracion
+    )
+
+
+def ejecucion_giro(
+    carro,
+    tipo,
+    vel_izq,
+    vel_der,
+    duracion
+):
+    """
+    Ejecuta un movimiento de prueba.
+    """
+
+    v, omega = carro.estimar_velocidades_chasis(
+        vel_izq,
+        vel_der
+    )
+
+    print("\n--------------------------------")
+    print(f"Tipo de giro : {tipo}")
+    print(f"Motor Izq    : {vel_izq:.2f}")
+    print(f"Motor Der    : {vel_der:.2f}")
+    print(f"Duración     : {duracion:.2f} s")
+    print(f"Vel. lineal  : {v:.2f} cm/s")
+    print(f"Vel. angular : {omega:.2f} rad/s")
+    print("--------------------------------")
+
+    carro.mover(
+        vel_izq,
+        vel_der
+    )
+
     time.sleep(duracion)
-    Carro.detener()
 
+    carro.detener()
+
+
+# ============================================================
+# Programa principal
+# ============================================================
 
 if __name__ == "__main__":
-    pines_izq = (17, 27, 12)
-    pines_der = (23, 22, 13)
-    pin_stby = 24
+
+    PINES_IZQ = (17, 27, 12)
+    PINES_DER = (23, 22, 13)
+    PIN_STBY = 24
 
     try:
-        with Carro(pines_izq, pines_der, pin_stby) as carrito:
+        with Carro(
+            PINES_IZQ,
+            PINES_DER,
+            PIN_STBY
+        ) as carrito:
+
             while True:
-                tipo, vel_izq, vel_der, duracion = menu_pruebas()
+
+                tipo, vel_izq, vel_der, duracion = (
+                    menu_pruebas()
+                )
+
                 if tipo is None:
-                    print("Selecciona una opción válida, intenta de nuevo.")
+                    print(
+                        "\nOpción inválida. "
+                        "Intenta nuevamente."
+                    )
                     continue
 
-                ejecucion_giro(carrito, tipo, vel_izq, vel_der, duracion)
+                ejecucion_giro(
+                    carrito,
+                    tipo,
+                    vel_izq,
+                    vel_der,
+                    duracion
+                )
 
-                seguir = input("\n¿Quieres hacer otra prueba? (s/n): ")
+                seguir = input(
+                    "\n¿Realizar otra prueba? (s/n): "
+                )
+
                 if seguir.lower() != "s":
-                    break    
+                    break
 
     except KeyboardInterrupt:
         print("\nOperación interrumpida por el usuario.")

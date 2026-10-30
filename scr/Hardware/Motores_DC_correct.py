@@ -94,6 +94,45 @@ class Carro:
         self.stby.off()
         print("Driver apagado y motores detenidos.")
 
+
+
+def estimar_velocidades_chasis(self,vel_izq: float,vel_der: float,L_ancho_via_cm: float = 20.0):
+    """
+    Estima la velocidad lineal v (cm/s) y la velocidad angular w (rad/s)
+    real del robot en base a los comandos normalizados y la compensación
+    del polinomio.
+
+    L_ancho_via_cm: Distancia física entre ruedas izquierdas y derechas (en cm).
+    """
+
+    # 1. Obtener los valores PWM ajustados por tu script
+    v_i_pwm = self._clamp(vel_izq)
+    v_d_pwm = self._clamp(self._compensar_derecho(vel_der))
+
+# 2. Función auxiliar para mapear PWM -> Velocidad física (cm/s)
+# Basado en la caracterización:
+# v = 0.58 * (PWM %) + 15.53 (para PWM >= 40 %)
+def pwm_a_velocidad_fisica(pwm_norm):
+    magnitud = abs(pwm_norm)
+
+    if magnitud < 0.4:
+        return 0.0  # Zona muerta por debajo del 40 %
+
+    pwm_porcentaje = magnitud * 100.0
+    v_cm_s = 0.58 * pwm_porcentaje + 15.53
+
+    return math.copysign(v_cm_s, pwm_norm)
+
+# Velocidades de las ruedas en cm/s
+v_L = pwm_a_velocidad_fisica(v_i_pwm)
+v_R = pwm_a_velocidad_fisica(v_d_pwm)
+
+# 3. Cinemática directa
+v_centro = (v_R + v_L) / 2.0          # Velocidad lineal del robot (cm/s)
+omega_chasis = (v_R - v_L) / L_ancho_via_cm  # Velocidad angular (rad/s)
+
+return v_centro, omega_chasis
+
 def Giros(Carrito,vel_izq,vel_der):
     '''Funcion compacta para pruebas de giro '''
     Carrito.mover(vel_izq,vel_der)
